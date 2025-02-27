@@ -9,16 +9,10 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
 
-
-
-
 pageNum = 2
 hasNextPage = True
 ARTICLE_COUNT = 0
 MAX_ARTICLES = 100  # Set the maximum number of articles to scrape
-
-
-
 
 # set up variables
 DEFAULT_YEAR_FROM = 2020
@@ -26,8 +20,20 @@ DEFAULT_YEAR_TO = 2020
 DEFAULT_KEYWORDS = ["certiorari", "plaintiff", "appeals court", "state supreme court"]
 FILENAME = "proquest_articles"
 
+# Create the folder if it doesn't exist
+DATA_FOLDER = "proquest_scraper_data"
+os.makedirs(DATA_FOLDER, exist_ok=True)
 
+def get_next_filename():
+    base_filename = FILENAME
+    counter = 1
+    while os.path.isfile(os.path.join(DATA_FOLDER, f'{base_filename}_{counter}.csv')):
+        counter += 1
+    return os.path.join(DATA_FOLDER, f'{base_filename}_{counter}.csv')
 
+current_filename = get_next_filename()
+df = pd.DataFrame(columns=["Newspaper", "Location", "Date", "Title", "Text", "Author", "URL"])
+df.to_csv(current_filename, index=False)
 
 # function used to search by the title once logged in
 def search_by_title(driver, docket_title):
@@ -38,17 +44,11 @@ def search_by_title(driver, docket_title):
    text_box.send_keys(docket_title)
    submit_button.click()
 
-
-
-
 # goes to the next page until message spotted on page
 def nextPage():
    global hasNextPage
    global pageNum
    global ARTICLE_COUNT
-
-
-
 
    # Check if the maximum number of articles has been reached
    if ARTICLE_COUNT >= MAX_ARTICLES:
@@ -56,13 +56,7 @@ def nextPage():
        print("Maximum number of articles reached. Stopping the scraper.")
        return
 
-
-
-
    getArticles()
-
-
-
 
    # If hits the last page, stop
    try:
@@ -74,16 +68,10 @@ def nextPage():
        pageButton.click()
        pageNum += 1
 
-
-
-
    except:
        hasNextPage = False
        print("Reached the last page. Stopping the scraper.")
        return
-
-
-
 
 # function to get each of the articles once search is complete
 def getArticles():
@@ -267,45 +255,43 @@ def getArticleDetails():
 
 
 # closing any banners
-def closeBanner():
-   try:
-       consent_button = WebDriverWait(driver, 3).until(
-           EC.element_to_be_clickable((By.ID, 'onetrust-accept-btn-handler'))
-       )
-       consent_button.click()
-   except Exception as e:
-       print(f"Consent banner not found or already closed: {e}")
-     
-   try:
-       WebDriverWait(driver, 3).until(
-           EC.invisibility_of_element((By.CLASS_NAME, 'onetrust-pc-dark-filter'))
-       )
-   except Exception as e:
-       print(f"Overlay did not disappear: {e}")
-
-
-
+def closeBanner(max_attempts=3):
+    for attempt in range(max_attempts):
+        try:
+            consent_button = WebDriverWait(driver, 10).until(
+                EC.element_to_be_clickable((By.ID, 'onetrust-accept-btn-handler'))
+            )
+            consent_button.click()
+            
+            # Wait for the banner to disappear
+            WebDriverWait(driver, 10).until(
+                EC.invisibility_of_element_located((By.CLASS_NAME, 'onetrust-pc-dark-filter'))
+            )
+            print("Consent banner closed successfully.")
+            return True
+        except Exception as e:
+            print(f"Attempt {attempt + 1} failed: {e}")
+    
+    print("Failed to close consent banner after multiple attempts.")
+    return False
 
 # function to save to csv
 def saveArticles(newspaper, location, date, title, text, author, url):
-   global ARTICLE_COUNT
-   if not os.path.isfile(f'{FILENAME}.csv'):
-       df = pd.DataFrame(columns=["Newspaper", "Location", "Date", "Title", "Text", "Author", "URL"])
-       df.to_csv(f'{FILENAME}.csv', index=False)
+   global ARTICLE_COUNT, current_filename
  
-   df = pd.read_csv(f'{FILENAME}.csv')
+   df = pd.read_csv(current_filename)
    new_row = pd.DataFrame([{
-       "Newspaper": newspaper,
-       "Location": location,
-       "Date": date,
-       "Title": title,
-       "Text": text,
-       "Author": author,
-       "URL": url
+        "Newspaper": newspaper,
+        "Location": location,
+        "Date": date,
+        "Title": title,
+        "Text": text,    
+        "Author": author,
+        "URL": url
    }])
- 
+
    df = pd.concat([df, new_row], ignore_index=True)
-   df.to_csv(f'{FILENAME}.csv', index=False)
+   df.to_csv(current_filename, index=False)
    ARTICLE_COUNT += 1
 
 
@@ -314,47 +300,34 @@ def saveArticles(newspaper, location, date, title, text, author, url):
 if __name__ == "__main__":
    import argparse
 
+   if __name__ == "__main__":
+    import argparse
 
+    parser = argparse.ArgumentParser(description="ProQuest Article Scraper")
+    parser.add_argument("--max_articles", type=int, default=100, help="Maximum number of articles to scrape")
+    parser.add_argument("--year_from", type=int, default=DEFAULT_YEAR_FROM, help="Starting year for filtering")
+    parser.add_argument("--year_to", type=int, default=DEFAULT_YEAR_TO, help="Ending year for filtering")
+    parser.add_argument("--keywords", type=str, default="", help="Comma-separated keywords for search")
 
+    args = parser.parse_args()
 
-   parser = argparse.ArgumentParser(description="ProQuest Article Scraper")
-   parser.add_argument("--max_articles", type=int, default=100, help="Maximum number of articles to scrape")
-   parser.add_argument("--year_from", type=int, default=DEFAULT_YEAR_FROM, help="Starting year for filtering")
-   parser.add_argument("--year_to", type=int, default=DEFAULT_YEAR_TO, help="Ending year for filtering")
-   parser.add_argument("--keywords", type=str, default="", help="Comma-separated keywords for search")
+    MAX_ARTICLES = args.max_articles
+    TARGET_YEAR_FROM = args.year_from
+    TARGET_YEAR_TO = args.year_to
+    SEARCH_KEYWORDS = [keyword.strip() for keyword in args.keywords.split(",") if keyword.strip()]
 
+    search_term = f'({" OR ".join(DEFAULT_KEYWORDS)})'
+    if SEARCH_KEYWORDS:
+        search_term += f' AND ({" AND ".join(SEARCH_KEYWORDS)})'
 
-
-
-   args = parser.parse_args()
-
-
-
-
-   MAX_ARTICLES = args.max_articles
-   TARGET_YEAR_FROM = args.year_from
-   TARGET_YEAR_TO = args.year_to
-   SEARCH_KEYWORDS = [keyword.strip() for keyword in args.keywords.split(",")]
-   
-   search_term = f'({" OR ".join(DEFAULT_KEYWORDS)})'
-   if SEARCH_KEYWORDS:
-        search_term = f'{search_term} AND ({" AND ".join(SEARCH_KEYWORDS)})'
-
-
- 
    options = webdriver.ChromeOptions()
    service = Service(ChromeDriverManager().install())
 
-
-
-
    driver = webdriver.Chrome(service=service, options=options)
 
-
-
-
    driver.get("https://www.proquest.com/usnews/news/fromDatabasesLayer?accountid=12826")
-   time.sleep(30)
+   wait = WebDriverWait(driver, 300)
+   login_success_element = wait.until(EC.presence_of_element_located((By.ID, "searchTerm")))
 
 
 
@@ -364,9 +337,6 @@ if __name__ == "__main__":
  
    while hasNextPage:
        nextPage()
-
-
-
 
    driver.quit()
 

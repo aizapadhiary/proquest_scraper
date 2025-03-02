@@ -15,9 +15,15 @@ ARTICLE_COUNT = 0
 MAX_ARTICLES = 100  # set the maximum number of articles to scrape
 
 # set up variables
-DEFAULT_YEAR_FROM = 2020
+DEFAULT_YEAR_FROM = 2017
 DEFAULT_YEAR_TO = 2020
-DEFAULT_KEYWORDS = ["certiorari", "plaintiff", "appeals court", "state supreme court"]
+DEFAULT_KEYWORDS = ["certiorari", "appeal", "court", "jurisdiction", 
+                    "litigation", "lawsuit", "plaintiff", "disposition", 
+                    "legality", "constitution", "constitutionality", "unconstitutional",
+                    "rulings", "upheld", "bill of rights", "amendment",
+                    "overturn", "overturn", "affirmed", "reversed"]
+
+EXCLUDED_KEYWORDS = ["supreme court"]
 FILENAME = "proquest_articles"
 
 # create the folder if it doesn't exist
@@ -271,6 +277,27 @@ def saveArticles(newspaper, location, date, title, text, author, url):
     df.to_csv(current_filename, index=False)
     ARTICLE_COUNT += 1
 
+def create_proquest_search_string():
+    group_size = len(DEFAULT_KEYWORDS) // 5
+    remainder = len(DEFAULT_KEYWORDS) % 5
+
+    groups = []
+    start = 0
+    for i in range(5):
+        end = start + group_size + (1 if i < remainder else 0)
+        groups.append(DEFAULT_KEYWORDS[start:end])
+        start = end
+
+    search_string = " AND ".join(
+        "(" + " OR ".join(group) + ")" for group in groups
+    )
+    if SEARCH_KEYWORDS:
+        search_string += f' AND ({" AND ".join(SEARCH_KEYWORDS)})'
+    
+    search_string += f' NOT ({" AND ".join(EXCLUDED_KEYWORDS)})'
+
+    return search_string
+
 # run the 
 if __name__ == "__main__":
     import argparse
@@ -288,9 +315,7 @@ if __name__ == "__main__":
     TARGET_YEAR_TO = args.year_to
     SEARCH_KEYWORDS = [keyword.strip() for keyword in args.keywords.split(",") if keyword.strip()]
 
-    search_term = f'({" OR ".join(DEFAULT_KEYWORDS)})'
-    if SEARCH_KEYWORDS:
-        search_term += f' AND ({" AND ".join(SEARCH_KEYWORDS)})'
+    search_term = create_proquest_search_string()
 
     options = webdriver.ChromeOptions()
     service = Service(ChromeDriverManager().install())

@@ -263,7 +263,7 @@ def closeBanner(max_attempts=3):
         except Exception as e:
             print(f"Attempt {attempt + 1} failed: {e}")
     
-    print("Failed to close consent banner after multiple attempts.")
+    print("Failed to close consent banner after multiple attempts.") 
     return False
 
 # function to save to csv

@@ -82,6 +82,7 @@ def nextPage():
 
 # function to get each of the articles once search is complete
 def getArticles():
+    print(f"getting articles for page {pageNum - 1}")
     global ARTICLE_COUNT
     global hasNextPage
 
@@ -159,7 +160,7 @@ def filterByYear(year_from, year_to):
         except Exception as e:
             print("Filter cannot be applied, trying once more.")
             attempts += 1
-            time.sleep(3)
+            time.sleep(1)
     if attempts == max_attempts:
         print("Filter cannot be applied, exiting selenium")
         driver.quit()
@@ -183,7 +184,6 @@ def getArticleContent(href):
     except:
         text = None
         
-    # clicking on the details button
     contentsButton = None
     try:
         contentsButton = WebDriverWait(driver, 3).until(
@@ -214,14 +214,15 @@ def assignmentAndSaveArticles(text, href):
     try:
         newspaper, location, date, title, author = getArticleDetails()
         print(newspaper, location, date, title, author)
-        saveArticles(newspaper, location, date, title, text, author, url=href)
+        if(isValidArticle(text)):
+            saveArticles(newspaper, location, date, title, text, author, url=href)
     except Exception as e:
         print(f"Error: {e}")
 
 # get other article details
 def getArticleDetails():
     newspaper, location, date, title, author = None, None, None, None, None
-    parent_divs = WebDriverWait(driver, 2).until(
+    parent_divs = WebDriverWait(driver, 10).until(
         EC.presence_of_all_elements_located((By.CLASS_NAME, 'display_record_indexing_row'))
     )
         
@@ -254,7 +255,6 @@ def closeBanner(max_attempts=3):
             )
             consent_button.click()
             
-            # wait for the banner to disappear
             WebDriverWait(driver, 10).until(
                 EC.invisibility_of_element_located((By.CLASS_NAME, 'onetrust-pc-dark-filter'))
             )
@@ -269,7 +269,7 @@ def closeBanner(max_attempts=3):
 # function to save to csv
 def saveArticles(newspaper, location, date, title, text, author, url):
     global ARTICLE_COUNT, current_filename
-    excel_char_count = 30000
+    excel_char_count = 32767
 
     if text:
         text = text_cutoff(text, excel_char_count)
@@ -280,7 +280,7 @@ def saveArticles(newspaper, location, date, title, text, author, url):
         "Location": location,
         "Date": date,
         "Title": title,
-        "Text": text,    
+        "Text": text,
         "Author": author,
         "URL": url
     }])
@@ -289,28 +289,29 @@ def saveArticles(newspaper, location, date, title, text, author, url):
     df.to_csv(current_filename, index=False)
     ARTICLE_COUNT += 1
 
+def isValidArticle(text):
+    total_keywords = 0
+    for word in DEFAULT_KEYWORDS:
+        if(word in text):
+            total_keywords += 1
+        print (total_keywords)
+        if(total_keywords >= 4):
+            return True
+    return False
+
+
+# formats proquest search given keywords.
 def create_proquest_search_string():
-    group_size = len(DEFAULT_KEYWORDS) // 5
-    remainder = len(DEFAULT_KEYWORDS) % 5
+    search_string = f'({" OR ".join(f"\"{keyword}\"" for keyword in DEFAULT_KEYWORDS)})'
 
-    groups = []
-    start = 0
-    for i in range(5):
-        end = start + group_size + (1 if i < remainder else 0)
-        groups.append(DEFAULT_KEYWORDS[start:end])
-        start = end
-
-    search_string = " AND ".join(
-        "(" + " OR ".join(group) + ")" for group in groups
-    )
     if SEARCH_KEYWORDS:
-        search_string += f' AND ({" AND ".join(SEARCH_KEYWORDS)})'
-    
-    search_string += f' NOT ({" AND ".join(EXCLUDED_KEYWORDS)})'
+        search_string += f' AND ({" AND ".join(f"\"{keyword}\"" for keyword in SEARCH_KEYWORDS)})'
+
+    search_string += f' NOT ({" AND ".join(f"\"{keyword}\"" for keyword in EXCLUDED_KEYWORDS)})'
 
     return search_string
 
-# run the 
+# run the script
 if __name__ == "__main__":
     import argparse
 

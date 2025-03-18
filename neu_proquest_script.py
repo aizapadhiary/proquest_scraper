@@ -12,7 +12,8 @@ from webdriver_manager.chrome import ChromeDriverManager
 pageNum = 2
 hasNextPage = True
 ARTICLE_COUNT = 0
-MAX_ARTICLES = 100  # set the maximum number of articles to scrape
+MAX_ARTICLES = 100
+MIN_KEYWORDS = 4
 
 # set up variables
 DEFAULT_YEAR_FROM = 2017
@@ -225,9 +226,15 @@ def getArticleDetails():
     parent_divs = WebDriverWait(driver, 10).until(
         EC.presence_of_all_elements_located((By.CLASS_NAME, 'display_record_indexing_row'))
     )
-        
+    # for i, div in enumerate(parent_divs):
+    #     print(f"--- Div {i+1} ---")
+    #     print(div.get_attribute('outerHTML'))
+    #     print(f"--- End of Div {i+1} ---")
     for div in parent_divs:
-        field_name = div.find_element(By.CLASS_NAME, 'display_record_indexing_fieldname').text
+        try:
+            field_name = div.find_element(By.CLASS_NAME, 'display_record_indexing_fieldname').text
+        except:
+            continue
         
         if field_name.strip() == 'Publisher':
             newspaper = div.find_element(By.CLASS_NAME, 'display_record_indexing_data').text
@@ -295,8 +302,9 @@ def isValidArticle(text):
         if(word in text):
             total_keywords += 1
         print (total_keywords)
-        if(total_keywords >= 4):
+        if(total_keywords >= MIN_KEYWORDS):
             return True
+    print("Not enough keywords in article; not added to CSV.")
     return False
 
 

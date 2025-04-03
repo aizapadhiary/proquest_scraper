@@ -24,7 +24,7 @@ DEFAULT_KEYWORDS = ["certiorari", "appeal", "court", "jurisdiction",
                     "rulings", "upheld", "bill of rights", "amendment",
                     "overturn", "overturn", "affirmed", "reversed"]
 
-EXCLUDED_KEYWORDS = ["supreme court"]
+EXCLUDED_KEYWORDS = []
 FILENAME = "proquest_articles"
 
 # create the folder if it doesn't exist
@@ -40,8 +40,12 @@ def get_next_filename():
     return os.path.join(DATA_FOLDER, f'{base_filename}_{counter}.csv')
 
 current_filename = get_next_filename()
+excluded_filename = current_filename.replace(".csv", "_excluded.csv")
+
 df = pd.DataFrame(columns=["Newspaper", "Location", "Date", "Title", "Text", "Author", "URL"])
+df_excluded = pd.DataFrame(columns=["Newspaper", "Location", "Date", "Title", "Text", "Author", "URL"])
 df.to_csv(current_filename, index=False)
+df_excluded.to_csv(excluded_filename, index=False)
 
 # function used to search by the title once logged in
 def search_by_title(driver, docket_title):
@@ -95,7 +99,6 @@ def getArticles():
 
     try:
         for li in li_elements:
-            # check if the maximum number of articles has been reached
             if ARTICLE_COUNT >= MAX_ARTICLES:
                 hasNextPage = False
                 print("Maximum number of articles reached. Stopping the scraper.")
@@ -215,8 +218,8 @@ def assignmentAndSaveArticles(text, href):
     try:
         newspaper, location, date, title, author = getArticleDetails()
         print(newspaper, location, date, title, author)
-        if(isValidArticle(text)):
-            saveArticles(newspaper, location, date, title, text, author, url=href)
+        is_valid = isValidArticle(text)
+        saveArticles(newspaper, location, date, title, text, author, url=href, is_valid=is_valid)
     except Exception as e:
         print(f"Error: {e}")
 
@@ -274,27 +277,41 @@ def closeBanner(max_attempts=3):
     return False
 
 # function to save to csv
-def saveArticles(newspaper, location, date, title, text, author, url):
-    global ARTICLE_COUNT, current_filename
+def saveArticles(newspaper, location, date, title, text, author, url, is_valid):
+    global ARTICLE_COUNT, current_filename, excluded_filename
+
     excel_char_count = 32767
 
     if text:
         text = text_cutoff(text, excel_char_count)
 
-    df = pd.read_csv(current_filename)
-    new_row = pd.DataFrame([{
-        "Newspaper": newspaper,
-        "Location": location,
-        "Date": date,
-        "Title": title,
-        "Text": text,
-        "Author": author,
-        "URL": url
-    }])
-
-    df = pd.concat([df, new_row], ignore_index=True)
-    df.to_csv(current_filename, index=False)
-    ARTICLE_COUNT += 1
+    if is_valid:
+        df = pd.read_csv(current_filename)
+        new_row = pd.DataFrame([{
+            "Newspaper": newspaper,
+            "Location": location,
+            "Date": date,
+            "Title": title,
+            "Text": text,
+            "Author": author,
+            "URL": url
+        }])
+        df = pd.concat([df, new_row], ignore_index=True)
+        df.to_csv(current_filename, index=False)
+        ARTICLE_COUNT += 1
+    else:
+        df_excluded = pd.read_csv(excluded_filename)
+        new_row_excluded = pd.DataFrame([{
+            "Newspaper": newspaper,
+            "Location": location,
+            "Date": date,
+            "Title": title,
+            "Text": text,
+            "Author": author,
+            "URL": url
+        }])
+        df_excluded = pd.concat([df_excluded, new_row_excluded], ignore_index=True)
+        df_excluded.to_csv(excluded_filename, index=False)
 
 def isValidArticle(text):
     total_keywords = 0
@@ -314,8 +331,8 @@ def create_proquest_search_string():
 
     if SEARCH_KEYWORDS:
         search_string += f' AND ({" AND ".join(f"\"{keyword}\"" for keyword in SEARCH_KEYWORDS)})'
-
-    search_string += f' NOT ({" AND ".join(f"\"{keyword}\"" for keyword in EXCLUDED_KEYWORDS)})'
+    if EXCLUDED_KEYWORDS != []:
+        search_string += f' NOT ({" AND ".join(f"\"{keyword}\"" for keyword in EXCLUDED_KEYWORDS)})'
 
     return search_string
 

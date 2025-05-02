@@ -8,6 +8,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
+from colorama import Fore, Back, Style
 
 pageNum = 2
 hasNextPage = True
@@ -87,49 +88,59 @@ def nextPage():
 
 # function to get each of the articles once search is complete
 def getArticles():
-    print(f"getting articles for page {pageNum - 1}")
+    print(Style.RESET_ALL + f"getting articles for page {pageNum - 1}")
     global ARTICLE_COUNT
     global hasNextPage
 
-    WebDriverWait(driver, 5).until(EC.visibility_of_all_elements_located((By.CLASS_NAME, "resultItems")))
-    ul_element = WebDriverWait(driver, 10).until(
-        EC.presence_of_element_located((By.CLASS_NAME, "resultItems"))
+    WebDriverWait(driver, 10).until(
+        EC.visibility_of_element_located((By.CLASS_NAME, "resultItems"))
     )
-    li_elements = ul_element.find_elements(By.CLASS_NAME, "resultItem")
 
     try:
-        for li in li_elements:
+        # Re-locate the list to get count
+        ul_element = driver.find_element(By.CLASS_NAME, "resultItems")
+        total_articles = len(ul_element.find_elements(By.CLASS_NAME, "resultItem"))
+
+        for i in range(total_articles):
             if ARTICLE_COUNT >= MAX_ARTICLES:
                 hasNextPage = False
-                print("Maximum number of articles reached. Stopping the scraper.")
+                print(Fore.GREEN + "Maximum number of articles reached. Stopping the scraper.")
                 return
-            
+
             time.sleep(3)
+
+            # Re-locate the article before each use to avoid staleness
+            ul_element = driver.find_element(By.CLASS_NAME, "resultItems")
+            li_elements = ul_element.find_elements(By.CLASS_NAME, "resultItem")
+            li = li_elements[i]
+
             a_element = li.find_element(By.CLASS_NAME, 'previewTitle')
             href = a_element.get_attribute('href')
-            
+
             if href and href != 'javascript:void(0)':
-                print("---")
+                print(Style.RESET_ALL + "---")
                 print(f"Navigating to: {href}")
                 driver.execute_script(f"window.open('{href}', '_blank');")
                 driver.switch_to.window(driver.window_handles[-1])
 
                 getArticleContent(href)
-                
+
                 driver.close()
                 driver.switch_to.window(driver.window_handles[0])
 
+                # Wait for article list to reload before continuing
                 WebDriverWait(driver, 10).until(
                     EC.presence_of_element_located((By.CLASS_NAME, 'resultItems'))
                 )
-                
                 time.sleep(1)
+
     except Exception as e:
-        print(f"Error: {e}")
+        print(Fore.RED + f"Error in getArticles: {e}")
+
      
 # function to filter by year
 def filterByYear(year_from, year_to):
-    print("--")
+    print(Style.RESET_ALL + "--")
     print("Applying year filter: ")
     startDate = str(year_from) + "-01-01"
     endDate = str(year_to) + "-12-31"
@@ -159,21 +170,21 @@ def filterByYear(year_from, year_to):
             WebDriverWait(driver, 10).until(
                 EC.presence_of_element_located((By.ID, 'applied-filters'))
             )
-            print(f"Year {year_from} to {year_to} filter applied.")
+            print(Fore.GREEN + f"Year {year_from} to {year_to} filter applied.")
             break
         except Exception as e:
-            print("Filter cannot be applied, trying once more.")
+            print(Fore.RED + "Filter cannot be applied, trying once more.")
             attempts += 1
             time.sleep(1)
     if attempts == max_attempts:
-        print("Filter cannot be applied, exiting selenium")
+        print(Fore.RED + "Filter cannot be applied, exiting selenium")
         driver.quit()
-    print("--")
+    print(Style.RESET_ALL + "--")
 
 #cuts off the text displayed if character count of article exceeds cell character limit
 def text_cutoff(text, limit):
     if len(text) > limit:
-        print(f"Text length ({len(text)}) exceeds {limit} characters limit; truncating.")
+        print(Fore.RED + f"Text length ({len(text)}) exceeds {limit} characters limit; truncating.")
         return text[:limit]
     return text
 
@@ -199,11 +210,11 @@ def getArticleContent(href):
                 EC.element_to_be_clickable((By.ID, "addFlashPageParameterformat_abstract"))
             )
         except Exception as e:
-            print("Error: neither citation nor abstract exist")
+            print(Fore.RED + "Error: neither citation nor abstract exist")
             try:
                 assignmentAndSaveArticles(text, href)
             except Exception as e:
-                print("No article details at all.")
+                print(Fore.RED + "No article details at all.")
 
     if contentsButton:  
         href = contentsButton.get_attribute('href')
@@ -221,7 +232,7 @@ def assignmentAndSaveArticles(text, href):
         is_valid = isValidArticle(text)
         saveArticles(newspaper, location, date, title, text, author, url=href, is_valid=is_valid)
     except Exception as e:
-        print(f"Error: {e}")
+        print(Fore.RED + f"Error saving articles: {e}")
 
 # get other article details
 def getArticleDetails():
@@ -268,12 +279,12 @@ def closeBanner(max_attempts=3):
             WebDriverWait(driver, 10).until(
                 EC.invisibility_of_element_located((By.CLASS_NAME, 'onetrust-pc-dark-filter'))
             )
-            print("Consent banner closed successfully.")
+            print(Fore.GREEN + "Consent banner closed successfully.")
             return True
         except Exception as e:
-            print(f"Attempt {attempt + 1} failed: {e}")
+            print(Fore.RED + f"Attempt {attempt + 1} failed: {e}")
     
-    print("Failed to close consent banner after multiple attempts.") 
+    print(Fore.RED + "Failed to close consent banner after multiple attempts.") 
     return False
 
 # function to save to csv
@@ -318,10 +329,9 @@ def isValidArticle(text):
     for word in DEFAULT_KEYWORDS:
         if(word in text):
             total_keywords += 1
-        print (total_keywords)
         if(total_keywords >= MIN_KEYWORDS):
             return True
-    print("Not enough keywords in article; not added to CSV.")
+    print(Fore.RED + "Not enough keywords in the article; not added to CSV.")
     return False
 
 

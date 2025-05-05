@@ -13,14 +13,15 @@ from colorama import Fore, Back, Style
 pageNum = 2
 hasNextPage = True
 ARTICLE_COUNT = 0
-MAX_ARTICLES = 100
+MAX_ARTICLES = 5
 MIN_KEYWORDS = 4
 
 # set up variables
 DEFAULT_YEAR_FROM = 2017
 DEFAULT_YEAR_TO = 2020
-DEFAULT_KEYWORDS = ["certiorari", "appeal", "court", "jurisdiction", 
-                    "litigation", "lawsuit", "plaintiff", "disposition", 
+DEFAULT_SOURCETYPE_FROM = "Newspaper"
+DEFAULT_KEYWORDS = ["certiorari", "appeal", "court", "jurisdiction",
+                    "litigation", "lawsuit", "plaintiff", "disposition",
                     "legality", "constitution", "constitutionality", "unconstitutional",
                     "rulings", "upheld", "bill of rights", "amendment",
                     "overturn", "overturn", "affirmed", "reversed"]
@@ -166,7 +167,7 @@ def filterByYear(year_from, year_to):
     while attempts < max_attempts:
         try:
             submitButton.click()
-            
+           
             WebDriverWait(driver, 10).until(
                 EC.presence_of_element_located((By.ID, 'applied-filters'))
             )
@@ -180,6 +181,26 @@ def filterByYear(year_from, year_to):
         print(Fore.RED + "Filter cannot be applied, exiting selenium")
         driver.quit()
     print(Style.RESET_ALL + "--")
+
+# Function to filter by source type (e.g., "Newspapers")
+def filterBySourceType(source_type):
+    print("--")
+    print(f"Applying source type filter: {source_type}")
+   
+    try:
+        # Locate and click on the source type dropdown
+        sourceTypeDropdown = WebDriverWait(driver, 10).until(
+            EC.element_to_be_clickable((By.ID, "filter_1"))
+        )
+        sourceTypeDropdown.click()
+       
+        print(f"Source type '{source_type}' filter applied.")
+
+
+    except Exception as e:
+        print(f"Error applying source type filter: {e}")
+        driver.quit()
+    print("--")
 
 #cuts off the text displayed if character count of article exceeds cell character limit
 def text_cutoff(text, limit):
@@ -198,7 +219,7 @@ def getArticleContent(href):
         text = full_text.text
     except:
         text = None
-        
+       
     contentsButton = None
     try:
         contentsButton = WebDriverWait(driver, 3).until(
@@ -249,22 +270,22 @@ def getArticleDetails():
             field_name = div.find_element(By.CLASS_NAME, 'display_record_indexing_fieldname').text
         except:
             continue
-        
+       
         if field_name.strip() == 'Publisher':
             newspaper = div.find_element(By.CLASS_NAME, 'display_record_indexing_data').text
-        
+       
         if field_name.strip() == 'Country of publication':
             location = div.find_element(By.CLASS_NAME, 'display_record_indexing_data').text
-            
+           
         if field_name.strip() == 'Publication date':
             date = div.find_element(By.CLASS_NAME, 'display_record_indexing_data').text
-        
+       
         if field_name.strip() == 'Title':
             title = div.find_element(By.CLASS_NAME, 'display_record_indexing_data').text
-            
+           
         if field_name.strip() == 'Author':
             author = div.find_element(By.CLASS_NAME, 'display_record_indexing_data').text
-            
+           
     return newspaper, location, date, title, author
 
 # closing any banners (mainly cookie banner)
@@ -275,7 +296,7 @@ def closeBanner(max_attempts=3):
                 EC.element_to_be_clickable((By.ID, 'onetrust-accept-btn-handler'))
             )
             consent_button.click()
-            
+           
             WebDriverWait(driver, 10).until(
                 EC.invisibility_of_element_located((By.CLASS_NAME, 'onetrust-pc-dark-filter'))
             )
@@ -283,8 +304,8 @@ def closeBanner(max_attempts=3):
             return True
         except Exception as e:
             print(Fore.RED + f"Attempt {attempt + 1} failed: {e}")
-    
-    print(Fore.RED + "Failed to close consent banner after multiple attempts.") 
+   
+    print(Fore.RED + "Failed to close consent banner after multiple attempts.")
     return False
 
 # function to save to csv
@@ -376,6 +397,7 @@ if __name__ == "__main__":
 
     search_by_title(driver, search_term)
     filterByYear(TARGET_YEAR_FROM, TARGET_YEAR_TO)
+    filterBySourceType(DEFAULT_SOURCETYPE_FROM)
 
     while hasNextPage:
         nextPage()

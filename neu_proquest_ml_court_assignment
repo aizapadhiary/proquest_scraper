@@ -1,0 +1,172 @@
+import requests
+from typing import List
+
+HF_TOKEN = "hf_YOUR_TOKEN_HERE"  ##Insert your hugging face token
+API_URL = "https://api-inference.huggingface.co/models/HuggingFaceH4/zephyr-7b-beta"
+
+headers = {
+    "Authorization": f"Bearer {HF_TOKEN}",
+    "Content-Type": "application/json"
+}
+
+from keybert import KeyBERT
+
+kw_model = KeyBERT()
+
+def extract_keywords(text: str, num_keywords: int = 5) -> list[str]:
+    keywords = kw_model.extract_keywords(text, top_n=num_keywords, stop_words='english')
+    return [kw for kw, _ in keywords]
+
+def summarize_text_with_llm(text: str, max_chars=3000) -> str:
+    prompt = f"Summarize the following legal opinion:\n\n{text[:max_chars]}"
+    payload = {
+        "inputs": prompt,
+        "parameters": {
+            "max_new_tokens": 200,
+            "temperature": 0.3,
+            "return_full_text": False
+        }
+    }
+
+    response = requests.post(API_URL, headers=headers, json=payload)
+    try:
+        result = response.json()
+        print("LLM response:", result)  # 👈 Add this line for debugging
+
+        # HuggingFace text generation models return a list of dicts
+        if isinstance(result, list) and "generated_text" in result[0]:
+            return result[0]["generated_text"].strip()
+        else:
+            return "Summary unavailable"
+    except Exception as e:
+        print("Error during LLM summary:", e)
+        print("Raw response:", response.text)
+        return f"Error generating summary: {e}"
+
+def search_courtlistener_cases(query: str, page_size: int = 5):
+    url = "https://www.courtlistener.com/api/rest/v4/search/"
+    params = {
+        "q": query,
+        "page_size": page_size,
+        "order_by": "dateFiled desc"
+    }
+
+    response = requests.get(url, params=params)
+    response.raise_for_status()
+    results = response.json()
+
+    output = []
+
+    for result in results.get("results", []):
+        case_title = result.get("caseName", "Unknown Case")
+        opinion_url = result.get("absolute_url")
+        cluster_id = result.get("cluster_id")
+        if cluster_id:
+            cluster_api_url = f"https://www.courtlistener.com/api/rest/v4/clusters/{cluster_id}/"
+            cluster_response = requests.get(cluster_api_url)
+            if cluster_response.status_code == 200:
+                cluster_json = cluster_response.json()
+                syllabus_text = cluster_json.get("syllabus")
+                if(syllabus_text != "") :
+                    output.append({"title": case_title, "summary": syllabus_text})
+                    print("Syllabus found; court case added.")
+                else :
+                    print("Syllabus not found; using AI summary of opinion text instead. [URL:" + cluster_api_url + "]")
+                    opinions = cluster_json.get("opinions_cited", []) or cluster_json.get("sub_opinions", [])
+                    if opinions:
+                        opinion_api_url = opinions[0]  # just take the first one
+                        opinion_response = requests.get(opinion_api_url)
+                        if opinion_response.status_code == 200:
+                            opinion_text = opinion_response.json().get("plain_text", "")
+                            summary = summarize_text_with_llm(opinion_text)
+                            output.append({"title": case_title, "summary": summary})
+                        else:
+                            output.append({"title": case_title, "summary": "Failed to fetch opinion"})
+                    else:
+                        output.append({"title": case_title, "summary": "No opinions found"})
+            else:
+                output.append({"title": case_title, "summary": "Failed to fetch cluster data"})
+        else:
+            output.append({"title": case_title, "summary": "Missing cluster ID"})
+
+    return output
+
+def case_lookup(source_text: str, num_keywords: int = 5, page_size: int = 3):
+    # Step 1: Extract keywords from source text
+    keywords = extract_keywords(source_text, num_keywords)
+    print("Extracted keywords:", keywords)
+
+    # Step 2: Search CourtListener using keyword phrases
+    results = []
+    for kw in keywords:
+        cases = search_courtlistener_cases(query=kw, page_size=page_size)
+        results.extend(cases)
+
+    # Optional: Deduplicate by title
+    seen_titles = set()
+    unique_results = []
+    for case in results:
+        if case["title"] not in seen_titles:
+            unique_results.append(case)
+            seen_titles.add(case["title"])
+
+    return unique_results
+
+
+def identify_case(text: str, case_summaries: List[str]):
+    context = "\n\n".join([f"Case {case[0]}: {case[1]}" for case in case_summaries])
+    prompt = f"""
+You are a legal expert.
+Given the text below and the summaries of potential cases, identify which case (if any) is being referenced.
+
+Text:
+{text}
+
+Candidate Cases:
+{context}
+
+Respond with the number of the most likely case, or "None" if no match is found.
+"""
+
+    payload = {
+        "inputs": prompt,
+        "parameters": {
+            "temperature": 0.2,
+            "max_new_tokens": 50,
+            "return_full_text": False
+        }
+    }
+
+    response = requests.post(API_URL, headers=headers, json=payload)
+    return response.json()
+
+query = """
+INDIANAPOLIS ‚Äì The 7th Circuit Court of Appeals has affirmed a district court ruling striking down a Pence-era abortion law.
+House Enrolled Act 1337 was signed by former Gov. Mike Pence in March 2016. Among other "non-discrimination provisions," the law prohibited abortions sought because a fetus had been potentially diagnosed with a disability.
+In an opinion filed Thursday, 7th Circuit Judge William J. Bauer called those provisions unconstitutional.
+"The non-discrimination provisions clearly violate well-established Supreme Court precedent holding that a woman may terminate her pregnancy prior to viability, and that the State may not prohibit a woman from exercising that right for any reason," he wrote for the three-judge panel that ruled on the case.
+Jane Henegar, executive director of the American Civil Liberties Union of Indiana, said in a written statement that Thursday's decision "affirmed a woman's fundamental right to make her own personal medical decisions."
+"This ruling is a victory for women and another repudiation of attempts by Indiana politicians to restrict ‚Äî and even ban ‚Äî access to abortion care," she said. "Deeply personal decisions about abortion should be made by women in consultation with their doctors ‚Äî not by politicians or government bureaucrats."
+Shortly after the bill was signed in spring 2016, Planned Parenthood of Indiana and Kentucky (PPINK), represented by the ACLU, filed a complaint in the U.S. District Court for the Southern District of Indiana seeking an injunction against the non-discrimination and fetal disposition provisions.
+The non-discrimination provisions prohibit abortions based solely on race, sex or diagnosis or a potential diagnosis of a disability such as Down syndrome, while the disposition provision dictated how a provider must dispose of the aborted fetus.
+PPINK argued the disposition provision would render the organization unable to contract with third-party cremation providers and would require providers to bury, cremate or entomb fetuses.
+Seventh Circuit Judge Daniel A Manion dissented on the fetal remains provision.
+"Under traditional rational basis review, if state action doesn't infringe upon a fundamental right or affect a protected class, we will uphold it so long as it is rationally related to a legitimate state interest," he wrote. "That part of Indiana's law rationally advances Indiana's interests in protecting public sensibilities and recognizing the dignity and humanity of the unborn."
+When U.S. District Court Judge Tanya Walton Pratt issued a preliminary injunction in June 2016, she said the law would likely be found unconstitutional and that it violated U.S. Supreme Court precedents that protect a woman's right to choose an abortion before a fetus is viable and the right to privacy in making that decision.
+She issued a permanent injunction against the measure in September.
+Indiana Attorney General Curtis Hill appealed.
+"By declaring unconstitutional a state law that would bar abortions based solely on race, sex or disability such as Down syndrome, a federal judge has cleared the path for genetic discrimination that once seemed like science fiction," Hill said in a September statement to IndyStar. "This state has a compelling interest in protecting the dignity of the unborn and in ensuring they are not selected for termination simply because they lack preferred physical characteristics."
+When contacted by IndyStar Friday, a representative for Hill's office declined to comment further.
+Whether Hill will appeal the decision is unclear. Indiana Right to Life wants him to do just that.
+"This is the civil rights battle of our time," Sue Swayze Liebel, the organization's vice president of public affairs, said in a written statement Friday. "Previous Supreme Court decisions that give states authority to regulate abortion give us great hope that the justices would side with Indiana's right to recognize civil rights protections for children in the womb."
+Although Indiana is not unique in having laws banning abortions based on race, sex or disability diagnosis, this ruling is a "landmark," said Sital Kalantry, clinical professor of law and director of the International Human Rights Policy Advocacy Clinic at Cornell Law School.
+"It is the first time that it directly says that pre-viability, reason-based bans are unconstitutional," she said.
+The case could have far-reaching implications if it were to reach the Supreme Court, Kalantry said.
+"If they decide that the laws are constitutional, the reason-based bans, I think hosts of states will be passing bans based on disability, race, sex selection, but more reasons," she said. "They'll be pushing the envelope further."
+In his Thursday opinion, Bauer wrote that such provisions were a barrier to a woman's rights and access to abortions.
+"The provisions prohibit abortions prior to viability if the abortion is sought for a particular purpose," Bauer wrote. "These provisions are far greater than a substantial obstacle; they are absolute prohibitions on abortions prior to viability which the Supreme Court has clearly held cannot be imposed by the State."
+Bauer further wrote that the "binary choice" theory established by 1992's Planned Parenthood of Southeastern Pennsylvania v. Casey ‚Äî in which a woman may terminate her pregnancy only if she decided she did not want a child before becoming pregnant ‚Äî is contrary to the idea that a woman's right to choose is rooted in her 14th Amendment right to privacy.
+"It is entirely inconsistent to hold that a woman's right of privacy to terminate a pregnancy exists if a woman decides before she becomes pregnant that she does not want to bear a child, but that the State can eliminate this privacy right if a woman later decides she wants to terminate her pregnancy for a particular purpose," he wrote. "Nothing in the Fourteenth Amendment or Supreme Court precedent allows the State to invade this privacy realm to examine the underlying basis for a woman's decision to terminate her pregnancy prior to viability."
+HEA 1337 has been described as one of the nation's most restrictive abortion laws, and this isn't the first time a judge has ruled against the state in its defense of the law. Last April, District Judge Pratt also blocked provisions that required a woman seeking an abortion to undergo an ultrasound at least 18 hours prior to the procedure. In June 2016, she struck down other provisions that required the identities of abortion providers to be public information, regulated the treatment and disposal of the aborted fetus and held individual doctors liable for violating a state statute.
+Word count: 1044"""
+print(case_lookup(query))
